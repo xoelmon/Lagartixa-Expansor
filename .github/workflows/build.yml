@@ -1,0 +1,47 @@
+name: Compilar EXPANSOR (Windows)
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Comprobar que se han subido todos los archivos
+        shell: pwsh
+        run: |
+          $needed = "PluginProcessor.cpp","PluginProcessor.h","PluginEditor.cpp","PluginEditor.h","DSP.h","UI.h","Params.h"
+          $missing = @($needed | Where-Object { -not (Get-ChildItem -Recurse -File -Filter $_ -ErrorAction SilentlyContinue) })
+          if (-not (Test-Path "CMakeLists.txt")) { $missing += "CMakeLists.txt" }
+          if ($missing.Count -gt 0) {
+            Write-Host "FALTAN ARCHIVOS EN EL REPOSITORIO: $($missing -join ', ')"
+            Get-ChildItem -Recurse -Name | Select-Object -First 80
+            exit 1
+          }
+
+      - name: Configurar
+        run: cmake -S . -B build -A x64
+
+      - name: Compilar
+        run: cmake --build build --config Release --parallel
+
+      - name: Preparar carpeta de salida
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $vst = Get-ChildItem -Directory -Recurse build -Filter "*.vst3" | Where-Object { $_.FullName -match "VST3" } | Select-Object -First 1
+          $exe = Get-ChildItem -File -Recurse build -Filter "*.exe" | Where-Object { $_.FullName -match "Standalone" } | Select-Object -First 1
+          Write-Host "VST3: $($vst.FullName)"
+          Write-Host "EXE:  $($exe.FullName)"
+          Copy-Item -Recurse $vst.FullName "dist/$($vst.Name)"
+          Copy-Item $exe.FullName "dist/$($exe.Name)"
+          Get-ChildItem -Recurse dist -Name
+
+      - name: Subir resultado
+        uses: actions/upload-artifact@v4
+        with:
+          name: EXPANSOR-Windows
+          path: dist
